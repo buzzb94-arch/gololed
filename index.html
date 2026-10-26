@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Гололёд · Ильинский</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Гололёд">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#EEF2F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F161D" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Макет: прогноз гололёда сверху (через сколько часов) → текущая погода → точки района → почасовой график 5 суток → окна риска → как считается */
+:root{
+  --bg:#EEF2F5; --surface:#FAFCFD; --fg:#16212B; --muted:#5A6B79; --line:#D2DCE4;
+  --ice:#2F6F9E; --snow:#8FA3B4; --rain:#3E8ED0; --frz:#B63A3A; --wind:#6A5ACD;
+  --l0:#DDE7EE; --l1:#E9D9A6; --l2:#E8A35C; --l3:#C9473F;
+  --l1-fg:#7A5A06; --l2-fg:#8A4A10; --l3-fg:#FFFFFF;
+  --ok:#2F7D5A; --ok-bg:#DCEFE6;
+  --font-body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-data:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0F161D; --surface:#17212B; --fg:#E3EBF2; --muted:#93A4B3; --line:#2A3846;
+  --ice:#7DB6E0; --snow:#B8C7D4; --rain:#6CB1EA; --frz:#F07A6E; --wind:#A99CF2;
+  --l0:#22303D; --l1:#5C4D1C; --l2:#7A4718; --l3:#A9352D;
+  --l1-fg:#F3DD93; --l2-fg:#FFD3A6; --l3-fg:#FFFFFF;
+  --ok:#7CCFA6; --ok-bg:#1C3A2D; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F161D; --surface:#17212B; --fg:#E3EBF2; --muted:#93A4B3; --line:#2A3846;
+  --ice:#7DB6E0; --snow:#B8C7D4; --rain:#6CB1EA; --frz:#F07A6E; --wind:#A99CF2;
+  --l0:#22303D; --l1:#5C4D1C; --l2:#7A4718; --l3:#A9352D;
+  --l1-fg:#F3DD93; --l2-fg:#FFD3A6; --l3-fg:#FFFFFF;
+  --ok:#7CCFA6; --ok-bg:#1C3A2D; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-top:calc(12px + env(safe-area-inset-top,0px));padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));
+  -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
+/* полоса под Dynamic Island, чтобы прокручиваемый текст не просвечивал под статус-баром */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;align-items:center;justify-content:space-between;gap:10px;padding-block:6px 10px;margin-bottom:-8px}
+.topbar h1{font-size:22px}
+.topbar .upd{font-size:12px;color:var(--muted);display:block;margin-top:2px}
+.icon-btn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;padding:0;flex:none}
+.icon-btn svg{width:22px;height:22px}
+.icon-btn.spin svg{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.icon-btn.spin svg{animation:none}}
+.banner{border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:14px;background:var(--surface);border:1px solid var(--line)}
+.banner b{display:block}
+.banner .x{margin-left:auto;border:0;background:none;padding:4px 6px;font-size:18px;line-height:1;color:var(--muted);min-width:32px;min-height:32px}
+.banner.warn{border-color:var(--l2)}
+.share-ico{display:inline-block;width:16px;height:16px;vertical-align:-3px}
+.wrap{max-width:1120px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.wrap>*{min-width:0}
+h1{font-size:28px;line-height:1.15;margin:0;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0;font-weight:600}
+.num{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+button,select{font:inherit;color:inherit}
+button{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 14px;cursor:pointer}
+button.primary{background:var(--ice);border-color:var(--ice);color:var(--bg);font-weight:600}
+button:focus-visible,select:focus-visible{outline:2px solid var(--ice);outline-offset:2px}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:end}
+header>div{flex:1 1 280px;min-width:0}
+header p{margin:4px 0 0;color:var(--muted);max-width:66ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 20px;display:grid;gap:12px}
+.hint{margin:0;color:var(--muted);font-size:13px}
+
+/* Главный вывод */
+.verdict{border-radius:14px;padding:20px 22px;display:grid;gap:10px;border:1px solid var(--line);background:var(--surface)}
+.verdict.l1{background:color-mix(in srgb,var(--l1) 35%,var(--surface));border-color:var(--l1)}
+.verdict.l2{background:color-mix(in srgb,var(--l2) 30%,var(--surface));border-color:var(--l2)}
+.verdict.l3{background:color-mix(in srgb,var(--l3) 22%,var(--surface));border-color:var(--l3)}
+.v-top{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:baseline}
+.v-eta{font-size:34px;font-weight:700;line-height:1.1;letter-spacing:-.01em}
+.v-when{font-size:16px;color:var(--muted)}
+.v-type{font-size:17px;font-weight:600}
+.v-why{margin:0;padding-left:20px;display:grid;gap:3px}
+.v-sub{color:var(--muted);font-size:13px}
+.lvl{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;white-space:nowrap}
+.lvl.l0{background:var(--l0);color:var(--muted)} .lvl.l1{background:var(--l1);color:var(--l1-fg)}
+.lvl.l2{background:var(--l2);color:var(--l2-fg)} .lvl.l3{background:var(--l3);color:var(--l3-fg)}
+
+/* Текущая погода */
+.now{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.tile{background:var(--bg);border-radius:10px;padding:10px 12px;display:grid;gap:2px}
+.tile small{color:var(--muted);font-size:12px}
+.tile b{font:600 20px/1.2 var(--font-data);font-variant-numeric:tabular-nums}
+.tile span{font-size:12px;color:var(--muted)}
+.season{display:inline-flex;gap:6px;align-items:center;font-size:13px;padding:3px 10px;border-radius:99px;background:var(--bg);border:1px solid var(--line)}
+
+/* Точки района */
+.pts{width:100%;border-collapse:collapse;font-size:14px}
+.pts th{font-size:12px;color:var(--muted);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.pts td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.pts tr[data-i]{cursor:pointer}
+.pts tr[data-i]:hover td{background:var(--bg)}
+.pts tr.sel td{background:color-mix(in srgb,var(--ice) 12%,var(--surface))}
+.pts td.n{font-weight:600}
+.scroll{overflow-x:auto}
+
+/* График */
+.chart-wrap{overflow-x:auto}
+.chart-wrap svg{display:block;min-width:720px;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:5px;vertical-align:-2px}
+.legend i.line{height:3px;border-radius:2px;vertical-align:3px}
+
+/* Окна риска */
+.wins{display:grid;gap:8px}
+.win{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.win .when{font-weight:600}
+.win .what{grid-column:2}
+.win .det{grid-column:2;color:var(--muted);font-size:13px}
+details.how>summary{cursor:pointer;font-weight:600}
+details.how ul{margin:8px 0 0;padding-left:20px;display:grid;gap:6px;font-size:14px}
+.err{color:var(--frz)}
+footer{color:var(--muted);font-size:12px}
+@media (max-width:640px){
+  h1{font-size:24px}.v-eta{font-size:28px}
+  .win{grid-template-columns:1fr}.win .what,.win .det{grid-column:1}
+  select{font-size:16px;padding:6px 8px;min-height:40px}
+  /* таблица точек → карточки */
+  .pts thead{display:none}
+  .pts,.pts tbody{display:block}
+  .pts tr[data-i]{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:12px 4px;border-bottom:1px solid var(--line)}
+  .pts td{display:block;padding:0;border:0}
+  .pts td.n{grid-column:1;font-size:16px}
+  .pts td.rk{grid-column:2;grid-row:1;justify-self:end}
+  .pts td.eta,.pts td.typ{grid-column:1/-1}
+  .pts td.typ:empty,.pts td.typ:only-child{display:none}
+  .pts td[data-label]:not(.eta)::before{content:attr(data-label) ": ";color:var(--muted);font-family:var(--font-body)}
+  .pts td.num{font-size:13px;grid-column:auto}
+  .pts tr[data-i]{border-radius:10px;padding-inline:10px}
+  .pts tr.sel{background:color-mix(in srgb,var(--ice) 14%,var(--surface))}
+  .pts tr.sel td,.pts tr[data-i]:hover td{background:none}
+  .season{display:block;border-radius:10px;padding:6px 10px;width:100%}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div><h1>Гололёд · Ильинский</h1><span class="upd" id="upd">загружаю…</span></div>
+    <button class="icon-btn" id="refresh" aria-label="Обновить прогноз" title="Обновить прогноз">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+    </button>
+  </div>
+  <div class="banner" id="installTip" hidden>
+    <div><b>Установите как приложение</b>Нажмите <svg class="share-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-label="Поделиться"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg> «Поделиться» в Safari, затем «На экран "Домой"».</div>
+    <button class="x" id="installClose" aria-label="Скрыть подсказку">×</button>
+  </div>
+  <div class="banner warn" id="offline" hidden></div>
+  <div class="banner" id="notifyTip" hidden>
+    <div><b>Предупреждать о гололёде</b>Уведомление, когда гололёд ожидается в ближайшие 24 часа. Срабатывает, когда вы открываете приложение.</div>
+    <button class="primary" id="notifyOn" style="flex:none">Включить</button>
+  </div>
+
+  <section class="verdict" id="verdict" aria-live="polite"><div class="v-type">Загружаю прогноз…</div></section>
+
+  <section class="panel">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+      <h2>Сейчас · <span id="nowPlace">Ильинский</span></h2>
+      <span class="season" id="season"></span>
+    </div>
+    <div class="now" id="now"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Точки района</h2>
+    <p class="hint">Нажмите на строку, чтобы посмотреть почасовой прогноз для этой точки.</p>
+    <div class="scroll"><table class="pts" id="pts"></table></div>
+  </section>
+
+  <section class="panel">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+      <h2>Почасовой прогноз · <span id="chartPlace">Ильинский</span></h2>
+      <label class="hint" for="ptSelect">Точка <select id="ptSelect"></select></label>
+    </div>
+    <div class="chart-wrap" id="chart"></div>
+    <div class="legend">
+      <span><i class="line" style="background:var(--fg)"></i>воздух, °C</span>
+      <span><i class="line" style="background:var(--ice)"></i>дорога (поверхность), °C</span>
+      <span><i style="background:var(--rain)"></i>дождь, мм</span>
+      <span><i style="background:var(--snow)"></i>снег, см</span>
+      <span><i style="background:var(--frz)"></i>ледяной дождь</span>
+      <span><i style="background:var(--l1)"></i><i style="background:var(--l2)"></i><i style="background:var(--l3)"></i>риск: низкий · средний · высокий</span>
+      <span><i class="line" style="background:var(--wind)"></i>ветер, м/с</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Когда ждать гололёд · <span id="winPlace">Ильинский</span></h2>
+    <div class="wins" id="wins"></div>
+  </section>
+
+  <section class="panel">
+    <details class="how">
+      <summary>Как считается</summary>
+      <ul>
+        <li><b>Ледяной дождь — гололёд, высокий риск.</b> Прогноз переохлаждённого дождя или мороси (коды 56, 57, 66, 67) либо дождь при температуре воздуха от −8 до +0,5 °C или на дорогу с температурой ниже 0 °C. Вода замерзает сразу. Ветер от 8 м/с ускоряет нарастание льда на проводах и деревьях.</li>
+        <li><b>Замерзание мокрой дороги — гололедица.</b> За последние 12 часов был дождь, мокрый снег или оттепель, а теперь поверхность дороги остывает до 0 °C и ниже. Высокий риск, если в последние 6 часов выпало от 0,5 мм и дорога холоднее −1 °C. Ветер от 5 м/с при влажности ниже 80% подсушивает дорогу и снижает риск на ступень.</li>
+        <li><b>Мокрый снег — снежный накат, средний риск.</b> Снег при температуре воздуха от −2 до +1 °C укатывается в лёд.</li>
+        <li><b>Иней на дороге — низкий или средний риск.</b> Поверхность 0 °C и ниже, влажность от 90%, точка росы не ниже температуры дороги минус 0,5 °C, ветер до 3 м/с. Влага оседает на дорогу льдом даже без осадков.</li>
+        <li><b>Сезоны:</b> зима — декабрь–февраль, весна — март–май, лето — июнь–август, осень — сентябрь–ноябрь. Правила одни на все сезоны. Летом они почти не срабатывают, а чаще всего гололёд бывает в межсезонье (октябрь–ноябрь, март–апрель) при переходах через 0 °C.</li>
+        <li><b>Температура дороги</b> — это прогноз температуры поверхности земли (0 см) из модели. Реальный асфальт на мостах и в низинах бывает холоднее на 1–3 °C.</li>
+      </ul>
+    </details>
+  </section>
+
+  <footer>Данные: Open-Meteo, почасовой прогноз и последние сутки. Расчёт ориентировочный и не заменяет предупреждения Пермского ЦГМС и МЧС.</footer>
+</div>
+
+<script>
+// 7 точек Ильинского муниципального округа (координаты проверены по OpenStreetMap)
+const POINTS = [
+  {name:"Ильинский", lat:58.568, lon:55.695, note:"центр округа"},
+  {name:"Чёрмоз", lat:58.779, lon:56.153, note:"город на Камском водохранилище"},
+  {name:"Сретенское", lat:58.606, lon:55.561},
+  {name:"Слудка", lat:58.631, lon:56.010},
+  {name:"Кривец", lat:58.576, lon:55.386},
+  {name:"Каргино", lat:58.770, lon:55.376},
+  {name:"Садки", lat:58.440, lon:55.506}
+];
+const SEASONS = [
+  {name:"Зима", months:[12,1,2], note:"снег и морозы; гололёд — в оттепели и при ледяном дожде"},
+  {name:"Весна", months:[3,4,5], note:"дневные оттепели и ночные заморозки — частая гололедица"},
+  {name:"Лето", months:[6,7,8], note:"гололёд маловероятен"},
+  {name:"Осень", months:[9,10,11], note:"первые заморозки после дождей — самое опасное время"}
+];
+const FRZ_CODES = new Set([56,57,66,67]);
+const LVL_TXT = ["нет", "низкий", "средний", "высокий"];
+const $ = id => document.getElementById(id);
+const fmt = (n, d=1) => n==null || isNaN(n) ? "—" : (n>0 && d ? "+" : "") + n.toFixed(d).replace(".", ",").replace("-", "−");
+const fmtU = (n, d=1) => n==null || isNaN(n) ? "—" : n.toFixed(d).replace(".", ",");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const WD = ["вс","пн","вт","ср","чт","пт","сб"];
+const MON = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
+const parseLocal = s => { const [d,t] = s.split("T"); const [y,m,dd] = d.split("-").map(Number); const [h,mi] = t.split(":").map(Number); return new Date(y, m-1, dd, h, mi); };
+const whenTxt = t => `${WD[t.getDay()]} ${t.getDate()} ${MON[t.getMonth()]}, ${String(t.getHours()).padStart(2,"0")}:00`;
+const hoursTxt = h => { if(h <= 0) return "сейчас"; const a=h%10, b=h%100; const w = a===1&&b!==11 ? "час" : a>=2&&a<=4&&(b<12||b>14) ? "часа" : "часов"; return `через ${h} ${w}`; };
+const seasonOf = d => SEASONS.find(s => s.months.includes(d.getMonth()+1));
+const horizonTxt = r => { const t = r.hours[r.hours.length-1].t; return `${WD[t.getDay()]} ${t.getDate()} ${MON[t.getMonth()]}`; };
+
+let selected = 0, data = null;
+try{ selected = Math.min(POINTS.length-1, Math.max(0, +localStorage.getItem("gl.point") || 0)); }catch(e){}
+
+async function fetchAll(){
+  const p = new URLSearchParams({
+    latitude: POINTS.map(p=>p.lat).join(","), longitude: POINTS.map(p=>p.lon).join(","),
+    hourly: "temperature_2m,relative_humidity_2m,dew_point_2m,rain,showers,snowfall,weather_code,wind_speed_10m,wind_gusts_10m,soil_temperature_0cm,snow_depth",
+    wind_speed_unit: "ms", past_days: 1, forecast_days: 5, timezone: "auto"
+  });
+  const r = await fetch("https://api.open-meteo.com/v1/forecast?" + p);
+  if(!r.ok) throw new Error("сервис погоды ответил ошибкой " + r.status);
+  const j = await r.json();
+  return Array.isArray(j) ? j : [j];
+}
+
+// ── Расчёт риска по часам ──
+function analyze(h){
+  const n = h.time.length, out = [];
+  const liq = i => (h.rain[i]||0) + (h.showers[i]||0);
+  const sum = (arr, from, to) => { let s = 0; for(let i=Math.max(0,from); i<=to; i++) s += arr(i); return s; };
+  for(let i=0; i<n; i++){
+    const T = h.temperature_2m[i], Ts = h.soil_temperature_0cm[i] ?? T, Td = h.dew_point_2m[i], RH = h.relative_humidity_2m[i];
+    const W = h.wind_speed_10m[i] ?? 0, G = h.wind_gusts_10m[i] ?? W, L = liq(i), S = h.snowfall[i] || 0, code = h.weather_code[i];
+    const types = []; let lvl = 0;
+    const add = (l, type, why) => { types.push({l, type, why}); lvl = Math.max(lvl, l); };
+    // A. Ледяной дождь
+    if(FRZ_CODES.has(code) || (L >= 0.1 && T <= 0.5 && T >= -8) || (L >= 0.1 && Ts <= 0)){
+      const why = [FRZ_CODES.has(code) ? "прогноз переохлаждённого дождя или мороси" : `дождь ${fmtU(L)} мм при воздухе ${fmt(T)} °C и дороге ${fmt(Ts)} °C`];
+      if(W >= 8 || G >= 12) why.push(`ветер ${fmtU(W)} м/с (порывы ${fmtU(G)}) — лёд быстрее нарастает на проводах и деревьях`);
+      add(3, "Ледяной дождь — гололёд", why);
+    }
+    // B. Замерзание мокрой дороги: влага за 12 ч + дорога ≤ 0
+    if(Ts <= 0){
+      const wet12 = sum(liq, i-12, i-1), wet6 = sum(liq, i-6, i-1);
+      let wetSnow = 0, thaw = false;
+      for(let k=Math.max(0,i-12); k<i; k++){
+        if((h.snowfall[k]||0) > 0 && h.temperature_2m[k] > -1) wetSnow += h.snowfall[k];
+        if(h.temperature_2m[k] > 1 && (h.snow_depth[k]||0) > 0.01) thaw = true;
+      }
+      if(wet12 >= 0.2 || wetSnow >= 0.2 || thaw){
+        let l = (wet6 >= 0.5 && Ts <= -1) ? 3 : 2;
+        const why = [];
+        if(wet12 >= 0.2) why.push(`за 12 ч до этого выпало ${fmtU(wet12)} мм дождя`);
+        if(wetSnow >= 0.2) why.push(`мокрый снег ${fmtU(wetSnow)} см за 12 ч`);
+        if(thaw) why.push("перед этим была оттепель, снег подтаивал");
+        why.push(`дорога остывает до ${fmt(Ts)} °C`);
+        if(W >= 5 && RH < 80){ l = Math.max(1, l-1); why.push(`ветер ${fmtU(W)} м/с и влажность ${Math.round(RH)}% подсушивают дорогу — риск ниже`); }
+        else if(W < 3 && RH >= 85) why.push(`слабый ветер (${fmtU(W)} м/с) и влажность ${Math.round(RH)}% — дорога не просыхает`);
+        add(l, "Замерзание мокрой дороги — гололедица", why);
+      }
+    }
+    // C. Мокрый снег → накат
+    if(S >= 0.1 && T >= -2 && T <= 1) add(2, "Мокрый снег — снежный накат", [`снег ${fmtU(S)} см при ${fmt(T)} °C, укатывается в лёд`]);
+    // D. Иней на дороге
+    if(Ts <= 0 && RH >= 90 && Td >= Ts - 0.5 && W <= 3 && L < 0.1){
+      add(RH >= 95 && Td >= Ts ? 2 : 1, "Иней на дороге", [`дорога ${fmt(Ts)} °C, точка росы ${fmt(Td)} °C, влажность ${Math.round(RH)}%, ветер ${fmtU(W)} м/с`]);
+    }
+    types.sort((a,b)=>b.l-a.l);
+    out.push({t: parseLocal(h.time[i]), T, Ts, Td, RH, W, G, L, S, code, lvl, types});
+  }
+  return out;
+}
+
+// Окна риска: подряд идущие часы с уровнем ≥ 1
+function windows(hours, from){
+  const res = []; let cur = null;
+  for(let i=from; i<hours.length; i++){
+    const x = hours[i];
+    if(x.lvl >= 1){
+      if(!cur) cur = {start:i, end:i, max:x.lvl, types:new Map(), minTs:x.Ts, maxW:x.W};
+      cur.end = i; cur.max = Math.max(cur.max, x.lvl); cur.minTs = Math.min(cur.minTs, x.Ts); cur.maxW = Math.max(cur.maxW, x.W);
+      for(const t of x.types) if(!cur.types.has(t.type) || cur.types.get(t.type).l < t.l) cur.types.set(t.type, t);
+    } else if(cur){ res.push(cur); cur = null; }
+  }
+  if(cur) res.push(cur);
+  return res;
+}
+
+function render(){
+  const now = new Date();
+  const results = data.map((d, k) => {
+    const hours = analyze(d.hourly);
+    let nowIdx = hours.findIndex(x => x.t > now) - 1; if(nowIdx < 0) nowIdx = 0;
+    const first2 = hours.findIndex((x, i) => i >= nowIdx && x.lvl >= 2);
+    const first1 = hours.findIndex((x, i) => i >= nowIdx && x.lvl >= 1);
+    return {p:POINTS[k], hours, nowIdx, first2, first1, wins:windows(hours, nowIdx)};
+  });
+  renderVerdict(results, now);
+  renderNow(results[selected], now);
+  renderPoints(results);
+  renderChart(results[selected]);
+  renderWindows(results[selected]);
+  maybeNotify(results);
+}
+
+function renderVerdict(results, now){
+  // по району: самая ранняя точка со средним/высоким риском, иначе с низким
+  const pick = key => results.filter(r=>r[key] >= 0).sort((a,b)=>a[key]-b[key] || b.hours[b[key]].lvl-a.hours[a[key]].lvl)[0];
+  const r = pick("first2") || pick("first1");
+  const v = $("verdict");
+  if(!r){
+    // ничего нет: подскажем, насколько близко к порогу
+    let min = null; for(const x of results) for(let i=x.nowIdx; i<x.hours.length; i++) if(!min || x.hours[i].Ts < min.h.Ts) min = {h:x.hours[i], p:x.p};
+    v.className = "verdict";
+    v.innerHTML = `<div class="v-top"><span class="v-eta">Гололёда не ожидается</span><span class="lvl l0">риск нет</span></div>
+      <div class="v-when">До ${horizonTxt(results[0])} — ни в одной из 7 точек района.</div>
+      ${min ? `<div class="v-sub">Самая холодная дорога: ${fmt(min.h.Ts)} °C — ${esc(min.p.name)}, ${whenTxt(min.h.t)}. ${min.h.Ts <= -6 ? "Сильный мороз: сухой снег не тает и не обледеневает." : min.h.Ts <= 0 ? "Если перед этим пройдут дождь или мокрый снег, возможна гололедица." : "До 0 °C не опускается."}</div>` : ""}`;
+    return;
+  }
+  const key = r.first2 >= 0 ? "first2" : "first1";
+  const x = r.hours[r[key]], lead = Math.max(0, Math.round((x.t - now) / 3600000));
+  const others = results.filter(o => o !== r && o[key] >= 0 && o[key] - r[key] <= 6).map(o=>o.p.name);
+  v.className = "verdict l" + x.lvl;
+  const word = x.types[0].type.startsWith("Ледяной") ? "Гололёд" : "Гололедица";
+  v.innerHTML = `<div class="v-top"><span class="v-eta">${lead<=0 ? word + " сейчас" : word + " " + hoursTxt(lead)}</span><span class="lvl l${x.lvl}">риск ${LVL_TXT[x.lvl]}</span></div>
+    <div class="v-when">${lead<=0 ? "" : whenTxt(x.t) + " · "}${esc(r.p.name)}${others.length ? `, затем ${others.map(esc).join(", ")}` : ""}</div>
+    <div class="v-type">${esc(x.types[0].type)}</div>
+    <ul class="v-why">${x.types.flatMap(t=>t.why).map(w=>`<li>${esc(w)}</li>`).join("")}</ul>
+    <div class="v-sub">Воздух ${fmt(x.T)} °C · дорога ${fmt(x.Ts)} °C · влажность ${Math.round(x.RH)}% · ветер ${fmtU(x.W)} м/с, порывы ${fmtU(x.G)} м/с</div>`;
+}
+
+function renderNow(r, now){
+  const x = r.hours[r.nowIdx], s = seasonOf(now);
+  $("nowPlace").textContent = r.p.name;
+  $("season").innerHTML = `<b>${s.name}</b> · ${s.note}`;
+  const prec = x.L >= 0.1 && x.S >= 0.1 ? `дождь со снегом` : x.L >= 0.1 ? `дождь ${fmtU(x.L)} мм/ч` : x.S >= 0.1 ? `снег ${fmtU(x.S)} см/ч` : "без осадков";
+  const tiles = [
+    ["Воздух", fmt(x.T)+" °C", ""],
+    ["Дорога", fmt(x.Ts)+" °C", x.Ts <= 0 ? "ниже нуля" : "выше нуля"],
+    ["Влажность", Math.round(x.RH)+"%", "точка росы " + fmt(x.Td) + " °C"],
+    ["Ветер", fmtU(x.W)+" м/с", "порывы " + fmtU(x.G) + " м/с"],
+    ["Осадки", FRZ_CODES.has(x.code) ? "ледяной" : x.L >= 0.1 && x.S >= 0.1 ? "смешанные" : x.L >= 0.1 ? "дождь" : x.S >= 0.1 ? "снег" : "нет", FRZ_CODES.has(x.code) ? "переохлаждённый дождь" : x.L >= 0.1 || x.S >= 0.1 ? prec : "сухо"],
+    ["Риск сейчас", LVL_TXT[x.lvl], x.types[0]?.type || "условий для льда нет"]
+  ];
+  $("now").innerHTML = tiles.map(([a,b,c])=>`<div class="tile"><small>${a}</small><b>${b}</b>${c ? `<span>${esc(c)}</span>` : ""}</div>`).join("");
+}
+
+function renderPoints(results){
+  const now = new Date();
+  $("pts").innerHTML = `<thead><tr><th>Точка</th><th>Ближайший гололёд</th><th>Тип</th><th>Риск</th><th>Мин. дорога</th><th>Макс. ветер</th></tr></thead><tbody>` +
+    results.map((r,i)=>{
+      const k = r.first2 >= 0 ? r.first2 : r.first1;
+      const fut = r.hours.slice(r.nowIdx);
+      const minTs = Math.min(...fut.map(x=>x.Ts)), maxW = Math.max(...fut.map(x=>x.W));
+      const x = k >= 0 ? r.hours[k] : null, lead = x ? Math.max(0, Math.round((x.t-now)/3600000)) : null;
+      return `<tr data-i="${i}" class="${i===selected?"sel":""}" tabindex="0" aria-selected="${i===selected}">
+        <td class="n">${esc(r.p.name)}</td>
+        <td class="eta" data-label="Гололёд">${x ? `${hoursTxt(lead)}<br><span class="hint num">${whenTxt(x.t)}</span>` : `<span class="hint">не ожидается</span>`}</td>
+        <td class="typ" data-label="Тип">${x ? esc(x.types[0].type) : ""}</td>
+        <td class="rk"><span class="lvl l${x ? x.lvl : 0}">${x ? LVL_TXT[x.lvl] : "нет"}</span></td>
+        <td class="num" data-label="Мин. дорога">${fmt(minTs)} °C</td>
+        <td class="num" data-label="Макс. ветер">${fmtU(maxW)} м/с</td></tr>`;
+    }).join("") + "</tbody>";
+}
+
+function renderChart(r){
+  $("chartPlace").textContent = r.p.name; $("winPlace").textContent = r.p.name;
+  const H = r.hours, n = H.length, from = Math.max(0, r.nowIdx - 6);  // 6 часов истории для контекста
+  const hs = H.slice(from), m = hs.length;
+  const W = 960, padL = 40, padR = 40, top = 22, riskH = 14, tH = 150, pH = 56, wH = 46, gap = 20;
+  const yRisk = top, yT = yRisk + riskH + gap, yP = yT + tH + gap, yW = yP + pH + gap, Hh = yW + wH + 26;
+  const cw = (W - padL - padR) / m, x = i => padL + i*cw + cw/2;
+  const temps = hs.flatMap(h=>[h.T, h.Ts]);
+  let tMin = Math.floor(Math.min(...temps, -2) / 2) * 2, tMax = Math.ceil(Math.max(...temps, 2) / 2) * 2;
+  const yt = v => yT + tH * (1 - (v - tMin) / (tMax - tMin));
+  const pMax = Math.max(2, ...hs.map(h=>Math.max(h.L, h.S)));
+  const yp = v => yP + pH * (1 - v / pMax);
+  const wMax = Math.max(6, Math.ceil(Math.max(...hs.map(h=>h.G))));
+  const yw = v => yW + wH * (1 - v / wMax);
+  let s = `<svg viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Почасовой прогноз: температура, осадки, ветер и риск гололёда">`;
+  // полоса риска
+  hs.forEach((h,i)=>{ s += `<rect x="${padL+i*cw}" y="${yRisk}" width="${cw+0.5}" height="${riskH}" fill="var(--l${h.lvl})"><title>${whenTxt(h.t)}: риск ${LVL_TXT[h.lvl]}${h.types[0] ? " — " + h.types[0].type : ""}</title></rect>`; });
+  s += `<text x="${padL-6}" y="${yRisk+11}" text-anchor="end" font-size="10" fill="var(--muted)">риск</text>`;
+  // сутки: разделители и подписи
+  hs.forEach((h,i)=>{ if(h.t.getHours()===0){ const xx = padL+i*cw; s += `<line x1="${xx}" x2="${xx}" y1="${yRisk}" y2="${yW+wH}" stroke="var(--line)" stroke-width="1"/><text x="${xx+4}" y="${Hh-8}" font-size="11" fill="var(--muted)">${WD[h.t.getDay()]} ${h.t.getDate()} ${MON[h.t.getMonth()]}</text>`; }
+    else if(h.t.getHours()%6===0) s += `<text x="${padL+i*cw}" y="${Hh-8}" font-size="9" fill="var(--muted)" text-anchor="middle" font-family="var(--font-data)">${h.t.getHours()}</text>`; });
+  // температура: сетка, 0 °C, линии
+  for(let v=tMin; v<=tMax; v+=Math.max(2, Math.round((tMax-tMin)/6/2)*2)) s += `<line x1="${padL}" x2="${W-padR}" y1="${yt(v)}" y2="${yt(v)}" stroke="var(--line)" stroke-width="${v===0?0:1}" opacity=".7"/><text x="${padL-6}" y="${yt(v)+3}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="var(--font-data)">${v>0?"+":v<0?"−":""}${Math.abs(v)}</text>`;
+  s += `<line x1="${padL}" x2="${W-padR}" y1="${yt(0)}" y2="${yt(0)}" stroke="var(--frz)" stroke-width="1.2" stroke-dasharray="4 3"/><text x="${W-padR+4}" y="${yt(0)+3}" font-size="10" fill="var(--frz)">0 °C</text>`;
+  const path = key => hs.map((h,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${yt(h[key]).toFixed(1)}`).join("");
+  s += `<path d="${path("Ts")}" fill="none" stroke="var(--ice)" stroke-width="2" stroke-dasharray="5 3"/>`;
+  s += `<path d="${path("T")}" fill="none" stroke="var(--fg)" stroke-width="2"/>`;
+  // осадки
+  s += `<line x1="${padL}" x2="${W-padR}" y1="${yP+pH}" y2="${yP+pH}" stroke="var(--line)"/><text x="${padL-6}" y="${yP+10}" text-anchor="end" font-size="10" fill="var(--muted)">мм/см</text><text x="${padL-6}" y="${yP+pH}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="var(--font-data)">0</text>`;
+  hs.forEach((h,i)=>{
+    const bw = Math.max(1, cw-1.5), xx = padL+i*cw+0.75;
+    if(h.S > 0) s += `<rect x="${xx}" y="${yp(h.S)}" width="${bw}" height="${yP+pH-yp(h.S)}" fill="var(--snow)"><title>${whenTxt(h.t)}: снег ${fmtU(h.S)} см</title></rect>`;
+    if(h.L > 0) s += `<rect x="${xx}" y="${yp(h.L)}" width="${bw}" height="${yP+pH-yp(h.L)}" fill="${h.types.some(t=>t.type.startsWith("Ледяной")) ? "var(--frz)" : "var(--rain)"}" opacity=".9"><title>${whenTxt(h.t)}: дождь ${fmtU(h.L)} мм</title></rect>`;
+  });
+  // ветер
+  s += `<line x1="${padL}" x2="${W-padR}" y1="${yW+wH}" y2="${yW+wH}" stroke="var(--line)"/><text x="${padL-6}" y="${yW+10}" text-anchor="end" font-size="10" fill="var(--muted)">м/с</text><text x="${padL-6}" y="${yW+wH}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="var(--font-data)">0</text><text x="${W-padR+4}" y="${yw(wMax)+8}" font-size="10" fill="var(--muted)" font-family="var(--font-data)">${wMax}</text>`;
+  s += `<path d="${hs.map((h,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${yw(h.W).toFixed(1)}`).join("")}" fill="none" stroke="var(--wind)" stroke-width="1.6"/>`;
+  s += `<path d="${hs.map((h,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${yw(h.G).toFixed(1)}`).join("")}" fill="none" stroke="var(--wind)" stroke-width="1" stroke-dasharray="2 3" opacity=".7"/>`;
+  // «сейчас»
+  const xn = x(r.nowIdx - from);
+  s += `<line x1="${xn}" x2="${xn}" y1="${yRisk-16}" y2="${yW+wH}" stroke="var(--fg)" stroke-width="1.2"/><text x="${xn+4}" y="${yRisk-6}" font-size="10" fill="var(--fg)" font-weight="600">сейчас</text>`;
+  // невидимые зоны для подсказок по часу
+  hs.forEach((h,i)=>{ s += `<rect x="${padL+i*cw}" y="${yT}" width="${cw}" height="${yW+wH-yT}" fill="transparent"><title>${whenTxt(h.t)}
+Воздух ${fmt(h.T)} °C, дорога ${fmt(h.Ts)} °C
+Влажность ${Math.round(h.RH)}%, точка росы ${fmt(h.Td)} °C
+Ветер ${fmtU(h.W)} м/с, порывы ${fmtU(h.G)} м/с
+${h.L ? "Дождь " + fmtU(h.L) + " мм  " : ""}${h.S ? "Снег " + fmtU(h.S) + " см" : ""}
+Риск: ${LVL_TXT[h.lvl]}${h.types[0] ? " — " + h.types[0].type : ""}</title></rect>`; });
+  $("chart").innerHTML = s + "</svg>";
+}
+
+function renderWindows(r){
+  const now = new Date();
+  if(!r.wins.length){ $("wins").innerHTML = `<p class="hint">До ${horizonTxt(r)} в точке «${esc(r.p.name)}» условий для гололёда нет.</p>`; return; }
+  $("wins").innerHTML = r.wins.map(w=>{
+    const a = r.hours[w.start], b = r.hours[w.end], lead = Math.max(0, Math.round((a.t-now)/3600000)), dur = w.end - w.start + 1;
+    const types = [...w.types.values()].sort((p,q)=>q.l-p.l);
+    return `<div class="win"><span class="lvl l${w.max}">${LVL_TXT[w.max]}</span>
+      <div><span class="when">${hoursTxt(lead)}</span> · ${whenTxt(a.t)} – ${String((b.t.getHours()+1)%24).padStart(2,"0")}:00 <span class="hint">(${dur} ч)</span></div>
+      <div class="what">${types.map(t=>esc(t.type)).join("; ")}</div>
+      <div class="det">Дорога до ${fmt(w.minTs)} °C · ветер до ${fmtU(w.maxW)} м/с · ${esc(types[0].why[0])}</div></div>`;
+  }).join("");
+}
+
+function maybeNotify(results){
+  if(!("Notification" in window)) return;
+  const now = new Date();
+  const soon = results.filter(r => r.first2 >= 0 && (r.hours[r.first2].t - now) / 3600000 <= 24);
+  if(!soon.length) return;
+  const r = soon.sort((a,b)=>a.hours[a.first2].t - b.hours[b.first2].t)[0], x = r.hours[r.first2];
+  const key = r.p.name + x.t.toISOString();
+  try{ if(localStorage.getItem("gl.notified") === key) return; }catch(e){}
+  if(Notification.permission !== "granted") return;
+  const title = "Гололёд в Ильинском районе", body = `${hoursTxt(Math.max(0, Math.round((x.t-now)/3600000)))} — ${r.p.name}: ${x.types[0].type}`;
+  // на iPhone уведомления показывает service worker
+  (navigator.serviceWorker ? navigator.serviceWorker.ready : Promise.reject()).then(reg => reg.showNotification(title, {body, icon:"icon-192.png", tag:"gololed"}))
+    .catch(() => { try{ new Notification(title, {body}); }catch(e){} });
+  try{ localStorage.setItem("gl.notified", key); }catch(e){}
+}
+
+function selectPoint(i){
+  selected = i; try{ localStorage.setItem("gl.point", i); }catch(e){}
+  $("ptSelect").value = i; render();
+}
+$("ptSelect").innerHTML = POINTS.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join("");
+$("ptSelect").value = selected;
+$("ptSelect").onchange = e => selectPoint(+e.target.value);
+$("pts").addEventListener("click", e => { const tr = e.target.closest("tr[data-i]"); if(tr) selectPoint(+tr.dataset.i); });
+$("pts").addEventListener("keydown", e => { const tr = e.target.closest("tr[data-i]"); if(tr && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); selectPoint(+tr.dataset.i); } });
+
+let loadedAt = 0, loading = false;
+const agoTxt = t => { const m = Math.round((Date.now()-t)/60000); return m < 1 ? "только что" : m < 60 ? `${m} мин назад` : `${Math.floor(m/60)} ч ${m%60} мин назад`; };
+function showUpdated(t, offline){
+  const d = new Date(t);
+  $("upd").textContent = `${offline ? "Без сети · прогноз от " : "Обновлено "}${d.getDate()} ${MON[d.getMonth()]}, ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+async function load(){
+  if(loading) return; loading = true;
+  $("refresh").disabled = true; $("refresh").classList.add("spin");
+  try{
+    data = await fetchAll(); loadedAt = Date.now();
+    try{ localStorage.setItem("gl.cache", JSON.stringify({t:loadedAt, data})); }catch(e){}
+    $("offline").hidden = true; showUpdated(loadedAt, false); render();
+  }catch(e){
+    let cache = null; try{ cache = JSON.parse(localStorage.getItem("gl.cache")); }catch(er){}
+    if(cache && cache.data){
+      data = cache.data; loadedAt = cache.t; render(); showUpdated(cache.t, true);
+      $("offline").innerHTML = `<div><b>Нет связи с сервисом погоды</b>Показан последний прогноз (${agoTxt(cache.t)}). Он постепенно устаревает — обновите, когда появится интернет.</div>`;
+      $("offline").hidden = false;
+    } else {
+      $("upd").textContent = "нет данных";
+      const why = e instanceof TypeError ? "Нет интернета или сервис погоды недоступен" : esc(e.message);   // Safari пишет «Load failed»
+      $("verdict").className = "verdict"; $("verdict").innerHTML = `<div class="v-type err">Не удалось получить прогноз</div><div class="v-sub">${why}. Проверьте интернет и нажмите кнопку обновления вверху.</div>`;
+    }
+  }finally{ loading = false; $("refresh").disabled = false; $("refresh").classList.remove("spin"); }
+}
+$("refresh").onclick = load;
+
+// подсказка «На экран Домой» — только в Safari на iPhone, пока приложение не установлено
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const standalone = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+try{ if(!standalone && isIOS && !localStorage.getItem("gl.installHidden")) $("installTip").hidden = false; }catch(e){}
+$("installClose").onclick = () => { $("installTip").hidden = true; try{ localStorage.setItem("gl.installHidden", "1"); }catch(e){} };
+// уведомления на iPhone доступны только установленному приложению и только по нажатию
+if("Notification" in window && Notification.permission === "default" && (standalone || !isIOS)) $("notifyTip").hidden = false;
+$("notifyOn").onclick = async () => { const p = await Notification.requestPermission(); $("notifyTip").hidden = true; if(p === "granted" && data) render(); };
+
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+// при возврате в приложение обновляем прогноз, если он старше 15 минут
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible" && Date.now() - loadedAt > 15*60*1000) load(); });
+setInterval(() => { if(document.visibilityState === "visible") load(); }, 30*60*1000);
+// сначала мгновенно показываем сохранённый прогноз, потом подгружаем свежий
+try{ const c = JSON.parse(localStorage.getItem("gl.cache")); if(c && c.data){ data = c.data; render(); showUpdated(c.t, false); } }catch(e){}
+load();
+</script>
+</body>
+</html>
